@@ -50,6 +50,7 @@ type Store struct {
 	tasks map[int]*Task
 	order []int // insertion order of IDs
 	path  string
+	nextID int
 }
 
 func New(path string) *Store {
@@ -67,6 +68,9 @@ func (s *Store) load() {
 	for _, t := range list {
 		s.tasks[t.ID] = t
 		s.order = append(s.order, t.ID)
+		if t.ID > s.nextID {
+			s.nextID = t.ID
+		}
 	}
 }
 
@@ -91,7 +95,8 @@ func (s *Store) Len() int {
 func (s *Store) Create(t *Task) *Task {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	t.ID = len(s.tasks) + 1
+	s.nextID++
+	t.ID = s.nextID
 	t.CreatedAt = time.Now()
 	t.UpdatedAt = t.CreatedAt
 	if t.Status == "" {
