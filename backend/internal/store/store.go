@@ -92,9 +92,15 @@ func (s *Store) Len() int {
 	return len(s.tasks)
 }
 
-func (s *Store) Create(t *Task) *Task {
+func (t *Task) clone() *Task {
+	c := *t
+	c.Tags = append([]string(nil), t.Tags...)
+	return &c
+}
+func (s *Store) Create(in *Task) *Task {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	t := in.clone()
 	s.nextID++
 	t.ID = s.nextID
 	t.CreatedAt = time.Now()
@@ -105,7 +111,7 @@ func (s *Store) Create(t *Task) *Task {
 	s.tasks[t.ID] = t
 	s.order = append(s.order, t.ID)
 	s.save()
-	return t
+	return t.clone()
 }
 
 // Get returns the task with the given id, or nil.
