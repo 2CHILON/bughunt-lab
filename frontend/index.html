@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BugHunt Lab</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>BugHunt Lab <small>task board with a few surprises</small></h1>
+    <div id="stats">loading stats…</div>
+  </header>
+
+  <main>
+    <section class="controls">
+      <input id="search" placeholder="search (regex!)" />
+      <select id="status-filter">
+        <option value="">all statuses</option>
+        <option value="todo">todo</option>
+        <option value="doing">doing</option>
+        <option value="done">done</option>
+      </select>
+      <a href="/api/export.csv">export CSV</a>
+    </section>
+
+    <ul id="task-list"></ul>
+
+    <nav class="pager">
+      <button id="prev">&larr; prev</button>
+      <span id="page-label"></span>
+      <button id="next">next &rarr;</button>
+    </nav>
+
+    <form id="add-form">
+      <h3>Add task</h3>
+      <input name="title" placeholder="title" required />
+      <input name="description" placeholder="description" />
+      <input name="priority" type="number" min="1" max="5" value="3" />
+      <input name="tags" placeholder="tags, comma separated" />
+      <button type="submit">Add</button>
+    </form>
+
+    <section class="debug">
+      <h3>Debug panel</h3>
+      <button id="btn-wordstats">Top words (C program)</button>
+      <button id="btn-runtime">Go runtime stats</button>
+      <pre id="wordstats"></pre>
+      <pre id="runtime"></pre>
+    </section>
+  </main>
+
+  <script type="module" src="dist/main.js"></script>
+</body>
+</html>

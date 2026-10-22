@@ -1,0 +1,46 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Go: debug server (Delve)",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/backend/cmd/server",
+      "cwd": "${workspaceFolder}/backend",
+      "env": { "BUGHUNT_TOKEN": "dev-token" }
+    },
+    {
+      "name": "Go: debug current test file",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${fileDirname}",
+      "cwd": "${fileDirname}"
+    },
+    {
+      "name": "Chrome: debug frontend",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:8080",
+      "webRoot": "${workspaceFolder}/frontend"
+    },
+    {
+      "name": "Node: loadtest",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/tools/loadtest.js",
+      "args": ["http://localhost:8080/api/tasks?q=deploy", "100", "10"]
+    },
+    {
+      "name": "C: gdb wordstat (needs gdb/MinGW)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/c/bin/wordstat",
+      "args": ["3"],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}/c",
+      "MIMode": "gdb"
+    }
+  ]
+}

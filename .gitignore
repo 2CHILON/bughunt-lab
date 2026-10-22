@@ -1,0 +1,10 @@
+backend/data/
+c/bin/
+node_modules/
+*.out
+*.prof
+*.test
+.idea/
+
+BUGS_ANSWER_KEY.md
+REVIEW_CHECKLIST.md
