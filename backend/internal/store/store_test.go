@@ -43,6 +43,17 @@ func TestCreateDoesNotAliasCallerData(t *testing.T) {
 		t.Fatalf("store content changed behind its back: %q", got)
 	}
 }
+//
+func TestCreateCopiesTags(t *testing.T) {
+	defer guard(t)
+	s := New("")
+	in := &Task{Title: "t", Tags: []string{"x"}}
+	created := s.Create(in)
+	in.Tags[0] = "changed"
+	if got := s.Get(created.ID).Tags[0]; got != "x" {
+		t.Fatalf("stored tags changed behind the store's back: %q",got)
+	}
+}
 
 func TestListFirstPageReturnsFirstItems(t *testing.T) {
 	defer guard(t)
