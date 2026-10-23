@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -18,13 +19,15 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		q := r.URL.Query()
-		page, _ := strconv.Atoi(q.Get("page"))
-		limit, _ := strconv.Atoi(q.Get("limit"))
-		if limit == 0 {
-			limit = 20
+		page, err := intParam(r, "page", 1, 1, 100000)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
-		if page == 0 {
-			page = 1
+		limit, err := intParam(r, "limit", 20, 1, 100)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
 		if term := q.Get("q"); term != "" {
 			writeJSON(w, http.StatusOK, map[string]any{"items": s.store.Search(term), "page": 1, "limit": limit})
@@ -168,4 +171,16 @@ func (s *Server) handleRuntime(w http.ResponseWriter, r *http.Request) {
 		"numGC":       m.NumGC,
 		"tasks":       s.store.Len(),
 	})
+}
+
+func intParam(r *http.Request, name string, def, min, max int) (int, error) {
+	raw := r.URL.Query().Get(name)
+	if raw == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < min || n > max {
+		return 0, fmt.Errorf("invalid %s: must be an integer between %d and %d", name, min, max)
+	}
+	return n, nil
 }
