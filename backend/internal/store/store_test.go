@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -201,4 +202,32 @@ func TestUpdateWhileReading(t *testing.T) {
 		}
 	}()
 	wg.Wait()
+}
+
+func TestDeleteThenExportCSV(t *testing.T) {
+	defer guard(t)
+	s := New("")
+	s.Create(&Task{Title: "one"})
+	s.Create(&Task{Title: "two"})
+	s.Create(&Task{Title: "three"})
+	s.Delete(2)
+	csv := s.ExportCSV()
+	if strings.Contains(csv, "two") {
+		t.Fatalf("deleted task still exported:\n%s", csv)
+	}
+}
+
+func TestDeleteThenReload(t *testing.T) {
+	defer guard(t)
+	path := t.TempDir() + "/tasks.json"
+	s := New(path)
+	s.Create(&Task{Title: "one"})
+	s.Create(&Task{Title: "two"})
+	s.Create(&Task{Title: "three"})
+	s.Delete(2)
+
+	s2 := New(path) // simulates a server restart
+	if s2.Len() != 2 {
+		t.Fatalf("after reload got %d tasks, want 2", s2.Len())
+	}
 }
