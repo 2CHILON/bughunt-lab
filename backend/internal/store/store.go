@@ -66,6 +66,9 @@ func (s *Store) load() {
 	var list []*Task
 	json.Unmarshal(data, &list)
 	for _, t := range list {
+		if t == nil {
+			continue // tolerate" null" entries written by older versions
+		}
 		s.tasks[t.ID] = t
 		s.order = append(s.order, t.ID)
 		if t.ID > s.nextID {
@@ -155,6 +158,12 @@ func (s *Store) Delete(id int) bool {
 		return false
 	}
 	delete(s.tasks, id)
+	for i, v := range s.order {
+		if v == id {
+			s.order = append(s.order[:i], s.order[i+1:]...)
+			break
+		}
+	}
 	s.save()
 	return true
 }
