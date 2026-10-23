@@ -59,19 +59,28 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodPut:
 		var in store.Task
-		json.NewDecoder(r.Body).Decode(&in)
-		wasDone := t.Status == "done"
-		t.Title = in.Title
-		t.Description = in.Description
-		t.Status = in.Status
-		t.Priority = in.Priority
-		t.Tags = in.Tags
-		t.DueDate = in.DueDate
-		s.store.Update(t)
-		if !wasDone && t.Status == "done" {
-			go func() {
-				s.events <- Event{TaskID: t.ID, Priority: t.Priority}
-			}()
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			http.Error(w, "bad json", http.StatusBadRequest)
+			return
+		}
+		wasDone := false
+		updated, ok := s.store.Update(id, func(t *store.Task){
+			wasDone = t.Status == "done"
+			t.Title = in.Title
+			t.Description = in.Description
+			t.Status = in.Status
+			t.Priority = in.Priority
+			t.Tags = in.Tags
+			t.DueDate = in.DueDate
+		})
+
+		if !ok {
+			http.Error(w, "task not found", http.StatusNotFound)
+			return
+		}
+		if !wasDone && updated.Status == "done" {
+			ev := Event{TaskID: updated.ID, Priority: updated.Priority}
+			go func() { s.events <- ev } ()
 		}
 		writeJSON(w, http.StatusOK, t)
 

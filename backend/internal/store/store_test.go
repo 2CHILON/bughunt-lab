@@ -179,3 +179,26 @@ func BenchmarkCreateWithPersistence(b *testing.B) {
 		s.Create(&Task{Title: "bench"})
 	}
 }
+
+//
+func TestUpdateWhileReading(t *testing.T) {
+	defer guard(t)
+	s := newSeeded(20)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 300; i++ {
+			s.Update(1, func(t *Task) { t.Title = fmt.Sprint("title ", i) })
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 300; i++ {
+			if task := s.Get(1); task != nil {
+				_ = task.Title
+			}
+		}
+	}()
+	wg.Wait()
+}
