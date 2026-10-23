@@ -97,6 +97,13 @@ func (t *Task) clone() *Task {
 	c.Tags = append([]string(nil), t.Tags...)
 	return &c
 }
+func cloneAll(in []*Task) []*Task {
+	out := make([]*Task, len(in))
+	for i, t := range in {
+		out[i] = t.clone()
+	}
+	return out
+}
 func (s *Store) Create(in *Task) *Task {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -118,15 +125,27 @@ func (s *Store) Create(in *Task) *Task {
 func (s *Store) Get(id int) *Task {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.tasks[id]
+	t, ok := s.tasks[id]
+	if !ok {
+		return nil
+	}
+	return t.clone()
 }
 
-// Update persists a task that the caller has already modified.
-func (s *Store) Update(t *Task) {
+// Update applies fn to the stored task while holding the write lock.
+// It returns a copy of the result, or (nil, false) if the task dosen't exist.
+func (s *Store) Update(id int, fn func(*Task)) (*Task, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	t, ok := s.tasks[id]
+	if !ok {
+		return nil, false
+	}
+	fn(t)
+	t.ID = id // the callback must not be able to change the identity
 	t.UpdatedAt = time.Now()
 	s.save()
+	return t.clone(), true
 }
 
 func (s *Store) Delete(id int) bool {
@@ -166,7 +185,7 @@ func (s *Store) List(f Filter) []*Task {
 	}
 	start := f.Page * f.Limit
 	end := start + f.Limit
-	return out[start:end]
+	return cloneAll(out[start:end])
 }
 
 // Search finds tasks whose title, description or tags match q (case-insensitive).
@@ -177,7 +196,7 @@ func (s *Store) Search(q string) []*Task {
 	for _, t := range s.tasks {
 		re := regexp.MustCompile("(?i)" + q)
 		if re.MatchString(t.Title) || re.MatchString(t.Description) || re.MatchString(strings.Join(t.Tags, " ")) {
-			out = append(out, t)
+			out = append(out, t.clone())
 		}
 	}
 	return out
