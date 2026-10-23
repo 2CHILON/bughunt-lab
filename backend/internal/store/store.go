@@ -192,8 +192,21 @@ func (s *Store) List(f Filter) []*Task {
 		}
 		out = append(out, t)
 	}
-	start := f.Page * f.Limit
-	end := start + f.Limit
+	page, limit := f.Page, f.Limit
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 20
+	}
+	start := (page - 1) * limit
+	if start >= len(out) {
+		return []*Task{} // past the last page: empty, not a panic
+	}
+	end := start + limit
+	if end > len(out) {
+		end = len(out)
+	}
 	return cloneAll(out[start:end])
 }
 

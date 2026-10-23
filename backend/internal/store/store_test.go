@@ -231,3 +231,31 @@ func TestDeleteThenReload(t *testing.T) {
 		t.Fatalf("after reload got %d tasks, want 2", s2.Len())
 	}
 }
+func TestListPaginationEdges(t *testing.T) {
+	defer guard(t)
+	s := newSeeded(25)
+	cases := []struct {
+		name        string
+		page, limit int
+		wantLen     int
+		wantFirstID int
+	}{
+		{"first page", 1, 10, 10, 1},
+		{"second page", 2, 10, 10, 11},
+		{"partial last page", 3, 10, 5, 21},
+		{"past the end", 4, 10, 0, 0},
+		{"limit bigger than data", 1, 100, 25, 1},
+		{"page zero treated as 1", 0, 10, 10, 1},
+		{"negative limit uses default", 1, -5, 20, 1},
+	}
+	for _, c := range cases {
+		got := s.List(Filter{Page: c.page, Limit: c.limit})
+		if len(got) != c.wantLen {
+			t.Errorf("%s: len = %d, want %d", c.name, len(got), c.wantLen)
+			continue
+		}
+		if c.wantLen > 0 && got[0].ID != c.wantFirstID {
+			t.Errorf("%s: first ID = %d, want %d", c.name, got[0].ID, c.wantFirstID)
+		}
+	}
+}
