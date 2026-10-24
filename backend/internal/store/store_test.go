@@ -284,3 +284,27 @@ func TestSearchTreatsInputAsLiteralText(t *testing.T) {
 		t.Fatalf("regex metacharacters must not act as a pattern, got %d matches", got)
 	}
 }
+
+func TestStatsFewTagsDoesNotPanic(t *testing.T) {
+	defer guard(t)
+	s := New("")
+	s.Create(&Task{Title: "a", Tags: []string{"x", "y"}})
+	st := s.Stats()
+	if len(st.TopTags) != 2 {
+		t.Fatalf("TopTags = %v, want 2 entries", st.TopTags)
+	}
+}
+
+func TestStatsTopTagsAreOrderedAndStable(t *testing.T) {
+	defer guard(t)
+	s := New("")
+	s.Create(&Task{Title: "1", Tags: []string{"b", "a"}})
+	s.Create(&Task{Title: "2", Tags: []string{"c", "a"}})
+	s.Create(&Task{Title: "3", Tags: []string{"b"}})
+	for i := 0; i < 20; i++ {
+		got := s.Stats().TopTags
+		if len(got) != 3 || got[0].Tag != "a" || got[1].Tag != "b" || got[2].Tag != "c" {
+			t.Fatalf("run %d: unexpected order %v (want a(2), b(2), c(1); ties sorted by name)", i, got)
+		}
+	}
+}
