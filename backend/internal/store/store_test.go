@@ -225,6 +225,9 @@ func TestDeleteThenReload(t *testing.T) {
 	s.Create(&Task{Title: "two"})
 	s.Create(&Task{Title: "three"})
 	s.Delete(2)
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	s2 := New(path) // simulates a server restart
 	if s2.Len() != 2 {

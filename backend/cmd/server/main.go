@@ -6,6 +6,8 @@ import (
 	"net/http"
 	_ "net/http/pprof" // pprof on the debug port, see README
 	"os"
+	"os/signal"
+	"syscall"
 
 	"bughunt/internal/api"
 	"bughunt/internal/store"
@@ -29,6 +31,16 @@ func main() {
 		log.Printf("seeding %d tasks...", *seed)
 		st.Seed(*seed)
 	}
+	sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigc
+		log.Println("shutting down: flushing store to disk...")
+		if err := st.Close(); err != nil {
+			log.Printf("flush on shutdown failed: %v", err)
+		}
+		os.Exit(0)
+	}()
 
 	if *pprofAddr != "" {
 		go func() { log.Println(http.ListenAndServe(*pprofAddr, nil)) }()
