@@ -4,8 +4,10 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -50,12 +52,26 @@ type Store struct {
 	order []int // insertion order of IDs
 	path  string
 	nextID int
+
+	dirty     bool       // guarded by mu: memory is newer than the file on disk
+	flushMu   sync.Mutex // serialises file writes: an older snapshot can never overwrite a newer one
+	quit      chan struct{}
+	stopped   chan struct{}
+	closeOnce sync.Once
 }
 
 func New(path string) *Store {
-	s := &Store{tasks: map[int]*Task{}, path: path}
+	s := &Store{
+		tasks:   map[int]*Task{},
+		path:    path,
+		quit:    make(chan struct{}),
+		stopped: make(chan struct{}),
+	}
 	if path != "" {
 		s.load()
+		go s.flushLoop()
+	} else {
+		close(s.stopped) // no file, no background writer
 	}
 	return s
 }
@@ -76,16 +92,87 @@ func (s *Store) load() {
 	}
 }
 
-func (s *Store) save() error {
+// flushLoop writes the store to disk at most every 200ms, and only when something changed.
+func (s *Store) flushLoop() {
+	defer close(s.stopped)
+	tick := time.NewTicker(200 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-tick.C:
+			if err := s.Flush(); err != nil {
+				log.Printf("store: flush failed (will retry): %v", err)
+			}
+		case <-s.quit:
+			return
+		}
+	}
+}
+
+// Flush writes the current state to disk if it changed since the last successful write.
+// The expensive part (JSON + disk I/O) happens outside the store lock.
+func (s *Store) Flush() error {
 	if s.path == "" {
 		return nil
 	}
-	list := make([]*Task, 0, len(s.tasks))
-	for _, id := range s.order {
-		list = append(list, s.tasks[id])
+	s.flushMu.Lock()
+	defer s.flushMu.Unlock()
+
+	s.mu.Lock()
+	if !s.dirty {
+		s.mu.Unlock()
+		return nil
 	}
-	data, _ := json.MarshalIndent(list, "", "  ")
-	return os.WriteFile(s.path, data, 0o644)
+	snap := make([]*Task, 0, len(s.order))
+	for _, id := range s.order {
+		snap = append(snap, s.tasks[id].clone())
+	}
+	s.dirty = false
+	s.mu.Unlock()
+
+	if err := writeFileAtomic(s.path, snap); err != nil {
+		s.mu.Lock()
+		s.dirty = true // still unsaved, so the next tick retries
+		s.mu.Unlock()
+		return err
+	}
+	return nil
+}
+
+// Close stops the background writer and performs a final flush. Call it on shutdown.
+func (s *Store) Close() error {
+	s.closeOnce.Do(func() { close(s.quit) })
+	<-s.stopped
+	return s.Flush()
+}
+
+// writeFileAtomic writes to a temp file in the same directory, fsyncs, then renames it
+// over the target, so a crash can never leave a half-written tasks.json behind.
+func writeFileAtomic(path string, tasks []*Task) error {
+	data, err := json.Marshal(tasks)
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), "tasks-*.tmp")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(name)
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(name)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(name)
+		return err
+	}
+	return os.Rename(name, path)
 }
 
 func (s *Store) Len() int {
@@ -119,7 +206,7 @@ func (s *Store) Create(in *Task) *Task {
 	}
 	s.tasks[t.ID] = t
 	s.order = append(s.order, t.ID)
-	s.save()
+		s.dirty = true
 	return t.clone()
 }
 
@@ -146,7 +233,7 @@ func (s *Store) Update(id int, fn func(*Task)) (*Task, bool) {
 	fn(t)
 	t.ID = id // the callback must not be able to change the identity
 	t.UpdatedAt = time.Now()
-	s.save()
+		s.dirty = true
 	return t.clone(), true
 }
 
@@ -163,7 +250,7 @@ func (s *Store) Delete(id int) bool {
 			break
 		}
 	}
-	s.save()
+		s.dirty = true
 	return true
 }
 
