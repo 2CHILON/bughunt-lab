@@ -3,13 +3,16 @@ package store
 
 import (
 	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -403,13 +406,35 @@ func (s *Store) Stats() Stats {
 	return st
 }
 
-func (s *Store) ExportCSV() string {
-	out := "id,title,status,priority,due\n"
+// ExportCSV writes every task as CSV to w, in insertion order.
+// The snapshot is taken under the read lock; the writing happens after the lock is
+// released, so a slow client can never block writers.
+func (s *Store) ExportCSV(w io.Writer) error {
+	s.mu.RLock()
+	rows := make([][]string, 0, len(s.order)+1)
+	rows = append(rows, []string{"id", "title", "status", "priority", "due"})
 	for _, id := range s.order {
 		t := s.tasks[id]
-		out += fmt.Sprintf("%d,%s,%s,%d,%s\n", t.ID, t.Title, t.Status, t.Priority, t.DueDate)
+		rows = append(rows, []string{
+			strconv.Itoa(t.ID),
+			csvSafe(t.Title),
+			csvSafe(t.Status),
+			strconv.Itoa(t.Priority),
+			csvSafe(t.DueDate),
+		})
 	}
-	return out
+	s.mu.RUnlock()
+
+	return csv.NewWriter(w).WriteAll(rows) // handles quoting; WriteAll also flushes
+}
+
+// csvSafe neutralises spreadsheet formula injection: Excel and Sheets execute cells
+// that start with = + - @ (or tab / CR), so those get a leading apostrophe.
+func csvSafe(v string) string {
+	if v != "" && strings.ContainsRune("=+-@\t\r", rune(v[0])) {
+		return "'" + v
+	}
+	return v
 }
 
 // Texts returns every title+description, one task per line (input for the C word counter).
