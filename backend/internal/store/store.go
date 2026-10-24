@@ -240,14 +240,18 @@ func matchesTag(tags []string, needle string) bool {
 }
 
 func (s *Store) Stats() Stats {
-	st := Stats{ByStatus: map[string]int{}}
-	today := time.Now().Format("2006-01-02")
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	st := Stats{ByStatus: map[string]int{}, TopTags: []TagCount{}}
+	today := time.Now().Format("2006-01-02") // local date; DueDate is YYYY-MM-DD, so string comparison works
 	tagCounts := map[string]int{}
 	sum := 0
+
 	for _, t := range s.tasks {
 		st.Total++
 		st.ByStatus[t.Status]++
-		if t.DueDate < today {
+		if t.DueDate != "" && t.DueDate < today && t.Status != "done" {
 			st.Overdue++
 		}
 		sum += t.Priority
@@ -255,13 +259,24 @@ func (s *Store) Stats() Stats {
 			tagCounts[tag]++
 		}
 	}
-	st.AvgPriority = float64(sum) / float64(st.Total)
-	var tags []TagCount
+	if st.Total > 0 {
+		st.AvgPriority = float64(sum) / float64(st.Total)
+	}
+
+	tags := make([]TagCount, 0, len(tagCounts))
 	for tag, n := range tagCounts {
 		tags = append(tags, TagCount{tag, n})
 	}
-	sort.Slice(tags, func(i, j int) bool { return tags[i].Count > tags[j].Count })
-	st.TopTags = tags[:5]
+	sort.Slice(tags, func(i, j int) bool {
+		if tags[i].Count != tags[j].Count {
+			return tags[i].Count > tags[j].Count
+		}
+		return tags[i].Tag < tags[j].Tag
+	})
+	if len(tags) > 5 {
+		tags = tags[:5]
+	}
+	st.TopTags = tags
 	return st
 }
 
