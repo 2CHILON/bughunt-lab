@@ -26,7 +26,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	st := store.New(*data)
+	st, err := store.Open(*data)
+	if err != nil {
+		log.Fatalf("cannot load %s: %v\nFix or move that file and start again. The server refuses to start so it cannot overwrite it.", *data, err)
+	}
 	if st.Len() == 0 && *seed > 0 {
 		log.Printf("seeding %d tasks...", *seed)
 		st.Seed(*seed)

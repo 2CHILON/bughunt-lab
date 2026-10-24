@@ -2,6 +2,7 @@
 package store
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -60,29 +61,61 @@ type Store struct {
 	closeOnce sync.Once
 }
 
-func New(path string) *Store {
+// Open loads the store from path (an empty path means in-memory only).
+// A missing or empty file is a normal first run. Any other problem is returned,
+// so the caller can refuse to start instead of overwriting data it could not read.
+func Open(path string) (*Store, error) {
 	s := &Store{
 		tasks:   map[int]*Task{},
 		path:    path,
 		quit:    make(chan struct{}),
 		stopped: make(chan struct{}),
 	}
-	if path != "" {
-		s.load()
-		go s.flushLoop()
-	} else {
+	if path == "" {
 		close(s.stopped) // no file, no background writer
+		return s, nil
+	}
+	if err := s.load(); err != nil {
+		return nil, err
+	}
+	go s.flushLoop()
+	return s, nil
+}
+
+// New is a convenience for tests and in-memory use: it panics if the file cannot be loaded.
+// Production code should call Open and handle the error.
+func New(path string) *Store {
+	s, err := Open(path)
+	if err != nil {
+		panic(err)
 	}
 	return s
 }
 
-func (s *Store) load() {
-	data, _ := os.ReadFile(s.path)
+func (s *Store) load() error {
+	data, err := os.ReadFile(s.path)
+	if os.IsNotExist(err) {
+		return nil // first run: nothing to load yet
+	}
+	if err != nil {
+		return fmt.Errorf("read %s: %w", s.path, err)
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil // empty file: treat as a fresh start
+	}
 	var list []*Task
-	json.Unmarshal(data, &list)
+	if err := json.Unmarshal(data, &list); err != nil {
+		return fmt.Errorf("parse %s: %w", s.path, err)
+	}
+	skipped := 0
 	for _, t := range list {
-		if t == nil {
-			continue // tolerate" null" entries written by older versions
+		if t == nil || t.ID <= 0 {
+			skipped++
+			continue
+		}
+		if _, dup := s.tasks[t.ID]; dup {
+			skipped++ // the first copy wins
+			continue
 		}
 		s.tasks[t.ID] = t
 		s.order = append(s.order, t.ID)
@@ -90,8 +123,11 @@ func (s *Store) load() {
 			s.nextID = t.ID
 		}
 	}
+	if skipped > 0 {
+		log.Printf("store: skipped %d invalid or duplicate entries while loading %s", skipped, s.path)
+	}
+	return nil
 }
-
 // flushLoop writes the store to disk at most every 200ms, and only when something changed.
 func (s *Store) flushLoop() {
 	defer close(s.stopped)
