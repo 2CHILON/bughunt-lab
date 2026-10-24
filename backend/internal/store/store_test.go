@@ -259,3 +259,28 @@ func TestListPaginationEdges(t *testing.T) {
 		}
 	}
 }
+
+func TestSearchMatchesTitleDescriptionAndTags(t *testing.T) {
+	defer guard(t)
+	s := New("")
+	s.Create(&Task{Title: "Fix LOGIN bug"})
+	s.Create(&Task{Title: "other", Description: "check the Login page"})
+	s.Create(&Task{Title: "third", Tags: []string{"login-flow"}})
+	s.Create(&Task{Title: "unrelated"})
+	if got := len(s.Search("login")); got != 3 {
+		t.Fatalf("got %d matches, want 3", got)
+	}
+}
+
+func TestSearchTreatsInputAsLiteralText(t *testing.T) {
+	defer guard(t)
+	s := New("")
+	s.Create(&Task{Title: "learn c++ (basics)"})
+	s.Create(&Task{Title: "learn cxx basics"})
+	if got := len(s.Search("c++ (")); got != 1 {
+		t.Fatalf("got %d matches, want 1", got)
+	}
+	if got := len(s.Search(".*")); got != 0 {
+		t.Fatalf("regex metacharacters must not act as a pattern, got %d matches", got)
+	}
+}

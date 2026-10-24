@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -210,18 +209,34 @@ func (s *Store) List(f Filter) []*Task {
 	return cloneAll(out[start:end])
 }
 
-// Search finds tasks whose title, description or tags match q (case-insensitive).
+// Search returns tasks whose title, description or tag contains q
+// (case-insensitive substring match), in insertion order.
 func (s *Store) Search(q string) []*Task {
+	needle := strings.ToLower(strings.TrimSpace(q))
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var out []*Task
-	for _, t := range s.tasks {
-		re := regexp.MustCompile("(?i)" + q)
-		if re.MatchString(t.Title) || re.MatchString(t.Description) || re.MatchString(strings.Join(t.Tags, " ")) {
+
+	out := []*Task{}
+	for _, id := range s.order {
+		t := s.tasks[id]
+		if strings.Contains(strings.ToLower(t.Title), needle) ||
+		strings.Contains(strings.ToLower(t.Description), needle) ||
+		matchesTag(t.Tags, needle) {
 			out = append(out, t.clone())
 		}
 	}
 	return out
+}
+
+func matchesTag(tags []string, needle string) bool {
+	for _, tag := range tags {
+		if strings.Contains(strings.ToLower(tag), needle) {
+			return true
+		}
+	}
+	return false
+
 }
 
 func (s *Store) Stats() Stats {
