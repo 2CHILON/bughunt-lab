@@ -64,3 +64,51 @@ func BenchmarkFlush(b *testing.B) {
 		s.Flush()
 	}
 }
+
+func TestOpenMissingFileIsFreshStart(t *testing.T) {
+	defer guard(t)
+	s, err := Open(filepath.Join(t.TempDir(), "tasks.json"))
+	if err != nil {
+		t.Fatalf("a missing file must not be an error: %v", err)
+	}
+	defer s.Close()
+	if s.Len() != 0 {
+		t.Fatalf("Len = %d, want 0", s.Len())
+	}
+}
+
+func TestOpenCorruptFileFailsAndLeavesFileUntouched(t *testing.T) {
+	defer guard(t)
+	path := filepath.Join(t.TempDir(), "tasks.json")
+	corrupt := []byte(`[{"id":1,"title":"precious"},{"id":2,"ti`)
+	os.WriteFile(path, corrupt, 0o644)
+	s, err := Open(path)
+	if err == nil {
+		s.Close()
+		t.Fatal("expected an error for a corrupt file")
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != string(corrupt) {
+		t.Fatalf("the corrupt file was modified: %q", got)
+	}
+}
+
+func TestOpenSkipsNullAndDuplicateEntries(t *testing.T) {
+	defer guard(t)
+	path := filepath.Join(t.TempDir(), "tasks.json")
+	os.WriteFile(path, []byte(`[null,{"id":1,"title":"a"},{"id":1,"title":"dup"},{"id":5,"title":"b"}]`), 0o644)
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if s.Len() != 2 {
+		t.Fatalf("Len = %d, want 2", s.Len())
+	}
+	if got := s.Get(1); got == nil || got.Title != "a" {
+		t.Fatalf("first copy of ID 1 should win, got %+v", got)
+	}
+	if c := s.Create(&Task{Title: "next"}); c.ID != 6 {
+		t.Fatalf("next ID = %d, want 6", c.ID)
+	}
+}
