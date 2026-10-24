@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -131,9 +132,15 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/csv")
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="tasks.csv"`)
-	w.Write([]byte(s.store.ExportCSV()))
+	if err := s.store.ExportCSV(w); err != nil {
+		log.Printf("export: %v", err) // headers are already sent, so all we can do is log
+	}
 }
 
 type wordCount struct {

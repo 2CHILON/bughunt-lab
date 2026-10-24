@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -168,7 +169,7 @@ func BenchmarkExportCSV(b *testing.B) {
 	s := newSeeded(5000)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		s.ExportCSV()
+		s.ExportCSV(io.Discard)
 	}
 }
 
@@ -211,9 +212,13 @@ func TestDeleteThenExportCSV(t *testing.T) {
 	s.Create(&Task{Title: "two"})
 	s.Create(&Task{Title: "three"})
 	s.Delete(2)
-	csv := s.ExportCSV()
-	if strings.Contains(csv, "two") {
-		t.Fatalf("deleted task still exported:\n%s", csv)
+
+	var b strings.Builder
+	if err := s.ExportCSV(&b); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(b.String(), "two") {
+		t.Fatalf("deleted task still exported:\n%s", b.String())
 	}
 }
 
