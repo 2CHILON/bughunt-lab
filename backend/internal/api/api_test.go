@@ -76,7 +76,7 @@ func TestJSONContentType(t *testing.T) {
 	defer guard(t)
 	_, h := newTestServer("secret")
 	rec := do(h, "GET", "/api/tasks?limit=5&page=1", "", "")
-	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+	if ct := rec.Result().Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
 		t.Fatalf("Content-Type = %q", ct)
 	}
 }

@@ -73,8 +73,26 @@ func (s *Server) Routes() http.Handler {
 	return h
 }
 
+// writeJSON sends v as JSON with the given status. It marshals first, so an encoding
+// failure becomes a clean 500 instead of a 200 with a half-written body.
 func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.WriteHeader(status)
+	body, err := json.Marshal(v)
+	if err != nil {
+		log.Printf("writeJSON: cannot encode %T: %v", v, err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(v)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(status) // headers must be set BEFORE this call
+	w.Write(append(body, '\n'))
+}
+
+// writeError sends {"error": msg} as JSON with the given status.
+func writeError(w http.ResponseWriter, status int, msg string) {
+	body, _ := json.Marshal(map[string]string{"error": msg})
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(status)
+	w.Write(append(body, '\n'))
 }
