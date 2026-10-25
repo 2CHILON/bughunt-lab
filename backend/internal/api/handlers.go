@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -12,10 +14,85 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"bughunt/internal/store"
 )
 
+const maxBodyBytes = 1 << 20 // 1 MiB
+
+var validStatus = map[string]bool{"todo": true, "doing": true, "done": true}
+
+// decodeJSON reads exactly one JSON object from the size-limited request body into dst.
+// On failure it writes the error response itself and returns false.
+func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		var tooBig *http.MaxBytesError
+		switch {
+		case errors.As(err, &tooBig):
+			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		case errors.Is(err, io.EOF):
+			writeError(w, http.StatusBadRequest, "request body is empty")
+		default:
+			writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		}
+		return false
+	}
+	if err := dec.Decode(&struct{}{}); err != io.EOF { // reject trailing data after the object
+		writeError(w, http.StatusBadRequest, "request body must contain a single JSON object")
+		return false
+	}
+	return true
+}
+
+// validateTask checks and normalises a task coming from a client. It returns a message
+// for the first problem found, or "" if the task is acceptable.
+func validateTask(t *store.Task) string {
+	t.Title = strings.TrimSpace(t.Title)
+	if t.Title == "" {
+		return "title is required"
+	}
+	if utf8.RuneCountInString(t.Title) > 200 {
+		return "title must be at most 200 characters"
+	}
+	if utf8.RuneCountInString(t.Description) > 2000 {
+		return "description must be at most 2000 characters"
+	}
+	if t.Status == "" {
+		t.Status = "todo"
+	} else if !validStatus[t.Status] {
+		return `status must be "todo", "doing" or "done"`
+	}
+	if t.Priority == 0 {
+		t.Priority = 3
+	} else if t.Priority < 1 || t.Priority > 5 {
+		return "priority must be between 1 and 5"
+	}
+	if t.DueDate != "" {
+		if _, err := time.Parse("2006-01-02", t.DueDate); err != nil {
+			return "dueDate must look like 2026-12-31"
+		}
+	}
+	tags := make([]string, 0, len(t.Tags))
+	for _, tag := range t.Tags {
+		tag = strings.TrimSpace(tag)
+		if tag == "" {
+			continue
+		}
+		if utf8.RuneCountInString(tag) > 30 {
+			return "each tag must be at most 30 characters"
+		}
+		tags = append(tags, tag)
+	}
+	if len(tags) > 10 {
+		return "at most 10 tags are allowed"
+	}
+	t.Tags = tags
+	return ""
+}
 func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -44,9 +121,16 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodPost:
 		var t store.Task
-		json.NewDecoder(r.Body).Decode(&t)
+		if !decodeJSON(w, r, &t) {
+			return
+		}
+		if msg := validateTask(&t); msg != "" {
+			writeError(w, http.StatusBadRequest, msg)
+			return
+		}
 		created := s.store.Create(&t)
-		writeJSON(w, http.StatusOK, created)
+		w.Header().Set("Location", fmt.Sprintf("/api/tasks/%d", created.ID))
+		writeJSON(w, http.StatusCreated, created)
 
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

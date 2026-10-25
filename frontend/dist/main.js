@@ -98,8 +98,11 @@ function wire() {
         await api.createTask({
             title: String(data.get("title")),
             description: String(data.get("description")),
-            priority: data.get("priority"),
-            tags: String(data.get("tags")).split(","),
+            priority: Number(data.get("priority")),
+            tags: String(data.get("tags"))
+                .split(",")
+                .map((t) => t.trim())
+                .filter(Boolean),
         });
         form.reset();
         await refreshAll();
