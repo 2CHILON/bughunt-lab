@@ -99,12 +99,12 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		page, err := intParam(r, "page", 1, 1, 100000)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		limit, err := intParam(r, "limit", 20, 1, 100)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		if term := q.Get("q"); term != "" {
@@ -133,26 +133,51 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusCreated, created)
 
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		w.Header().Set("Allow", "GET, POST")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
+// taskID extracts the numeric ID from /api/tasks/{id}. It accepts only plain positive
+// integers: no signs, no leading zeros (so 1 and 01 cannot name the same task), no extra path.
+func taskID(path string) (int, bool) {
+	raw := strings.TrimPrefix(path, "/api/tasks/")
+	if raw == "" || len(raw) > 9 || raw[0] == '0' {
+		return 0, false
+	}
+	for _, c := range raw {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+	}
+	id, err := strconv.Atoi(raw)
+	return id, err == nil
+}
+
 func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/api/tasks/"))
-	t := s.store.Get(id)
+	id, valid := taskID(r.URL.Path)
+	if !valid {
+		writeError(w, http.StatusBadRequest, "invalid task id")
+		return
+	}
 
 	switch r.Method {
 	case http.MethodGet:
+		t := s.store.Get(id)
+		if t == nil {
+			writeError(w, http.StatusNotFound, "task not found")
+			return
+		}
 		writeJSON(w, http.StatusOK, t)
 
 	case http.MethodPut:
 		var in store.Task
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			http.Error(w, "bad json", http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
 		wasDone := false
-		updated, ok := s.store.Update(id, func(t *store.Task){
+		updated, ok := s.store.Update(id, func(t *store.Task) {
 			wasDone = t.Status == "done"
 			t.Title = in.Title
 			t.Description = in.Description
@@ -161,23 +186,26 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 			t.Tags = in.Tags
 			t.DueDate = in.DueDate
 		})
-
 		if !ok {
-			http.Error(w, "task not found", http.StatusNotFound)
+			writeError(w, http.StatusNotFound, "task not found")
 			return
 		}
 		if !wasDone && updated.Status == "done" {
 			ev := Event{TaskID: updated.ID, Priority: updated.Priority}
-			go func() { s.events <- ev } ()
+			go func() { s.events <- ev }()
 		}
-		writeJSON(w, http.StatusOK, t)
+		writeJSON(w, http.StatusOK, updated)
 
 	case http.MethodDelete:
-		s.store.Delete(id)
+		if !s.store.Delete(id) {
+			writeError(w, http.StatusNotFound, "task not found")
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 
-	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		default:
+		w.Header().Set("Allow", "GET, PUT, DELETE")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
