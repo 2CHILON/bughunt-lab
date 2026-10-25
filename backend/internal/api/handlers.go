@@ -171,9 +171,20 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, t)
 
 	case http.MethodPut:
+		if s.store.Get(id) == nil { // answer 404 before judging the body
+			writeError(w, http.StatusNotFound, "task not found")
+			return
+		}
 		var in store.Task
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON")
+		if !decodeJSON(w, r, &in) {
+			return
+		}
+		if in.Status == "" { // PUT replaces the whole task; a bare {"title":"x"} must not wipe the rest
+			writeError(w, http.StatusBadRequest, "PUT replaces the whole task: send the complete task, including status")
+			return
+		}
+		if msg := validateTask(&in); msg != "" {
+			writeError(w, http.StatusBadRequest, msg)
 			return
 		}
 		wasDone := false
@@ -203,7 +214,7 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 
-		default:
+	default:
 		w.Header().Set("Allow", "GET, PUT, DELETE")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
