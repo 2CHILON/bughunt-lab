@@ -249,6 +249,28 @@ func (s *Store) Create(in *Task) *Task {
 	return t.clone()
 }
 
+// CreateMany adds all the tasks under a single lock acquisition, so the batch is applied as one
+// unit: readers never see half of it, and the IDs are consecutive. It returns copies.
+func (s *Store) CreateMany(in []Task) []*Task {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	out := make([]*Task, 0, len(in))
+	for i := range in {
+		t := in[i].clone()
+		s.nextID++
+		t.ID = s.nextID
+		t.CreatedAt, t.UpdatedAt = now, now
+		if t.Status == "" {
+			t.Status = "todo"
+		}
+		s.tasks[t.ID] = t
+		s.order = append(s.order, t.ID)
+		out = append(out, t.clone())
+	}
+	s.dirty = true
+	return out
+}
 // Get returns the task with the given id, or nil.
 func (s *Store) Get(id int) *Task {
 	s.mu.RLock()
