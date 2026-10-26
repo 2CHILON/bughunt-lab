@@ -12,7 +12,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -220,28 +219,40 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+const maxImportTasks = 1000
+
+// handleImport creates many tasks at once. The batch is all-or-nothing: every task is
+// validated first, and nothing is stored if any of them is invalid.
 func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		w.Header().Set("Allow", "POST")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	var tasks []store.Task
-	if err := json.NewDecoder(r.Body).Decode(&tasks); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !decodeJSON(w, r, &tasks) {
 		return
 	}
-	var wg sync.WaitGroup
-	imported := 0
-	for _, t := range tasks {
-		go func() {
-			wg.Add(1)
-			defer wg.Done()
-			s.store.Create(&t)
-			imported++
-		}()
+	if len(tasks) == 0 {
+		writeError(w, http.StatusBadRequest, "no tasks to import")
+		return
 	}
-	wg.Wait()
-	writeJSON(w, http.StatusOK, map[string]int{"imported": imported})
+	if len(tasks) > maxImportTasks {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("at most %d tasks per import", maxImportTasks))
+		return
+	}
+	for i := range tasks {
+		if msg := validateTask(&tasks[i]); msg != "" {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("task %d: %s", i, msg))
+			return
+		}
+	}
+	created := s.store.CreateMany(tasks)
+	ids := make([]int, len(created))
+	for i, t := range created {
+		ids[i] = t.ID
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"imported": len(created), "ids": ids})
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
