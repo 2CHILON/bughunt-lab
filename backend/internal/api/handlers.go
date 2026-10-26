@@ -203,7 +203,7 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 		}
 		if !wasDone && updated.Status == "done" {
 			ev := Event{TaskID: updated.ID, Priority: updated.Priority}
-			go func() { s.events <- ev }()
+			s.notify(ev)
 		}
 		writeJSON(w, http.StatusOK, updated)
 
